@@ -1,0 +1,21 @@
+{
+	"folders": [
+		{
+			"path": "../../.."
+		},
+		{
+			"name": "Auto-Dog-Feeder",
+			"path": "../.."
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"__bit_reference": "cpp",
+			"__string": "cpp",
+			"algorithm": "cpp",
+			"ios": "cpp",
+			"type_traits": "cpp",
+			"ostream": "cpp"
+		}
+	}
+}
