@@ -43,7 +43,7 @@ class AutoDogFeeder {
     public:
         AutoDogFeeder();
         // Supply the stepper pins
-        void init(uint8_t pinStep, uint8_t pinDir, uint8_t pinEn); 
+        void init(); 
         // This will start the auto feeding routine
         void start_autofeeding(uint8_t hours, uint8_t minutes);
         void stop_autofeeding(); 
@@ -55,6 +55,8 @@ class AutoDogFeeder {
             This will adjust the time (in 24 hour time)
         */
         void adjust_time(uint8_t hours, uint8_t minutes);
+        DateTime get_time();
+        uint16_t get_weight(); 
         // This function contains most of the logic for controlling the feeder 
         void run();
     protected:

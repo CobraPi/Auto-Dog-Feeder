@@ -30,11 +30,10 @@ void setup() {
   Serial.begin(115200);
   //Serial.println("HX711 Demo");
   
-  Serial.println("Serial started");
+  //Serial.println("Serial started");
   //init_ultrasonic(2, 3);
-  feeder.init(6,10,9); 
+  feeder.init(); 
   
-  Serial.println("Feeder initialized");
   //stepper.setEnablePin(10);
   //stepper.setPinsInverted(false, false, true);
   //stepper.setSpeed(1000);
@@ -90,7 +89,6 @@ void setup() {
 uint8_t stepDelay = 20;
 long timer;
 void loop() {
-  
  //Serial.println(millis() - timer);
   //timer = millis();
   if(Serial.available()) {
@@ -105,8 +103,13 @@ void loop() {
         Serial.println("Autofeeding stop");
         break;
       case 'd':
+       DateTime now = feeder.get_time();
+        Serial.println(now.hour());
         //Serial.println(get_ultrasonic_distance());
         break;
+      case 'w':
+        uint16_t weight = feeder.get_weight();
+        Serial.println(weight);  
     }
   }
   
