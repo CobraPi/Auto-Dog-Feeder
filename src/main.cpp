@@ -1,152 +1,198 @@
 #include <Arduino.h>
-//#include <mytime.h>
-/**
- *
- * HX711 library for Arduino - example file
- * https://github.com/bogde/HX711
- *
- * MIT License
- * (c) 2018 Bogdan Necula
- *
-**/
-//#include <HX711.h>
-#include <auto_dog_feeder.h>
+#include <HX711.h>
+#include <RTClib.h>
 #include <AccelStepper.h>
 #include <SPI.h>
-// HX711 circuit wiring
-//const int LOADCELL_DOUT_PIN = 3;
-//const int LOADCELL_SCK_PIN = 2;
-#define STEP 3
-#define DIR 6
-#define EN 8
-AccelStepper stepper(AccelStepper::DRIVER, STEP, DIR);
-uint8_t testTicker = 0;
-//MyTime mytime;
-long startTime;
-//HX711 scale;
-AutoDogFeeder feeder;
+
+enum FeederState {
+  IDLE,
+  START_FEEDING,
+  FEEDING,
+  STOP_FEEDING,
+};
+
+FeederState feederState;
+
+#define PIN_INDICATOR_LED 13
+unsigned long startTimer;
+/*
+  Functions for feed tone
+*/
+#define PIN_TONE 12
+uint16_t sweepFreq = 5000;
+void play_feed_tone2() {
+  for(int i = 0; i < sweepFreq; i++)  
+    tone(PIN_TONE, i, 1);
+  for(int i = sweepFreq; i >0; i--)  
+    tone(PIN_TONE, i, 1);
+  noTone(PIN_TONE);
+}
+
+void play_feed_tone() {
+  for(int i = sweepFreq; i >0; i--)  
+    tone(PIN_TONE, i, 1);
+  for(int i = 0; i < sweepFreq; i++)  
+    tone(PIN_TONE, i, 1);
+  noTone(PIN_TONE);
+}
+/*
+  Functions for setting up and moving stepper
+*/
+#define PIN_STEPPER_EN0 8
+#define PIN_STEPPER_EN1 9
+AccelStepper stepper; // pins 2,3,4,5
+long feedSpeed = 10000;
+long acceleration = 1000;
+long distance = 3000;
+
+void init_stepper() {
+  pinMode(PIN_STEPPER_EN0, OUTPUT);
+  pinMode(PIN_STEPPER_EN1, OUTPUT); 
+  stepper.setAcceleration(acceleration);
+  stepper.setMaxSpeed(feedSpeed);
+}
+
+void enable_stepper() {
+  digitalWrite(PIN_STEPPER_EN0, HIGH);
+  digitalWrite(PIN_STEPPER_EN1, HIGH);
+}
+
+void disable_stepper() {
+  digitalWrite(PIN_STEPPER_EN0, LOW);
+  digitalWrite(PIN_STEPPER_EN1, LOW);
+}
+
+void test_stepper() {
+  if(stepper.distanceToGo() == 0) {
+    distance *= -1;
+    stepper.move(distance);
+  } 
+  stepper.run();
+}
+
+/*
+    Functions for setting up and reading the scale 
+*/
+#define TARGET_FOOD_WEIGHT 700
+#define PIN_SCALE_DOUT 6
+#define PIN_SCALE_SCK 7
+HX711 scale;
+int16_t currentFoodWeight, targetFoodWeight;
+void init_scale() {
+  scale.begin(PIN_SCALE_DOUT, PIN_SCALE_SCK);
+  scale.set_scale(2280.f);                      // this value is obtained by calibrating the scale with known weights; see the README for details
+  scale.tare();				        // reset the scale to 0
+}
+
+double read_scale() {
+  while(!scale.is_ready());
+  double grams = scale.get_units() * 10.0; 
+  return grams;
+}
+
+
+/*
+  Functions for real time clock
+*/
+RTC_DS3231 rtc;
+DateTime currentTime;
+uint8_t alreadyFed;
+uint8_t feedingHours[2];
+uint8_t feedingHour0;
+uint8_t feedingHour1;
+uint8_t feedingMins;
+uint8_t feedingSecs;
+void init_rtc() {
+  rtc.begin();
+}
+
+void autofeed() {
+  currentTime = rtc.now(); 
+  stepper.run(); 
+  switch(feederState) {
+    case IDLE:
+      // check time to see if we should start feeding
+        for(int i = 0; i < sizeof(feedingHours) / sizeof(feedingHours[0]); i++) { 
+          if(feedingHours[i] == (uint8_t) currentTime.hour() && alreadyFed != (uint8_t) currentTime.hour()) {
+            feederState = START_FEEDING;
+            alreadyFed = currentTime.hour();
+          }
+        }
+      break;
+    case START_FEEDING:
+      // start moving auger motor
+      play_feed_tone();
+      enable_stepper();
+      stepper.move(-100000);
+      feederState = FEEDING;
+    case FEEDING:
+
+    currentFoodWeight = read_scale();
+    stepper.run(); 
+      // monitor food weight and stop when we reach the desired weight
+      if(currentFoodWeight > targetFoodWeight)
+        feederState = STOP_FEEDING; 
+    break;
+    case STOP_FEEDING:
+      stepper.stop();
+      stepper.setCurrentPosition(0);
+      disable_stepper();
+      play_feed_tone2();
+      feederState = IDLE;
+      // stop the auger since we've reached our target weight
+      break;
+  }
+  stepper.run();
+}
 
 void setup() {
   Serial.begin(115200);
-  //Serial.println("HX711 Demo");
-  
-  //Serial.println("Serial started");
-  //init_ultrasonic(2, 3);
-  feeder.init(); 
-  
-  //stepper.setEnablePin(10);
-  //stepper.setPinsInverted(false, false, true);
-  //stepper.setSpeed(1000);
-  //stepper.enableOutputs();
-  //Serial.println("Initializing the scale");
-  //mytime.set_time(0, 0);
-  // Initialize library with data output pin, clock input pin and gain factor.
-  // Channel selection is made by passing the appropriate gain:
-  // - With a gain factor of 64 or 128, channel A is selected
-  // - With a gain factor of 32, channel B is selected
-  // By omitting the gain factor parameter, the library
-  // default "128" (Channel A) is used here.
-  //scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN, 128);
-
- /* 
-  Serial.println("Before setting up the scale:");
-  Serial.print("read: \t\t");
-  Serial.println(scale.read());			// print a raw reading from the ADC
-
-  Serial.print("read average: \t\t");
-  Serial.println(scale.read_average(20));  	// print the average of 20 readings from the ADC
-
-  Serial.print("get value: \t\t");
-  Serial.println(scale.get_value(5));		// print the average of 5 readings from the ADC minus the tare weight (not set yet)
-
-  Serial.print("get units: \t\t");
-  Serial.println(scale.get_units(5), 1);	// print the average of 5 readings from the ADC minus tare weight (not set) divided
-						// by the SCALE parameter (not set yet)
-
-  scale.set_scale(2280.f);                      // this value is obtained by calibrating the scale with known weights; see the README for details
-  scale.tare();				        // reset the scale to 0
-
-  Serial.println("After setting up the scale:");
-
-  Serial.print("read: \t\t");
-  Serial.println(scale.read());                 // print a raw reading from the ADC
-
-  Serial.print("read average: \t\t");
-  Serial.println(scale.read_average(20));       // print the average of 20 readings from the ADC
-
-  Serial.print("get value: \t\t");
-  Serial.println(scale.get_value(5));		// print the average of 5 readings from the ADC minus the tare weight, set with tare()
-
-  Serial.print("get units: \t\t");
-  Serial.println(scale.get_units(5), 1);        // print the average of 5 readings from the ADC minus tare weight, divided
-						// by the SCALE parameter set with set_scale
-
-  Serial.println("Readings:");
-  */
- startTime = millis();
+  init_scale();  
+  init_rtc(); 
+  init_stepper();
+  feederState = START_FEEDING; 
+  alreadyFed = 100;
+  feedingHours[0] = 9;
+  feedingHours[1] = 21;
+  targetFoodWeight = TARGET_FOOD_WEIGHT;
 }
 
-uint8_t stepDelay = 20;
-long timer;
-void loop() {
- //Serial.println(millis() - timer);
-  //timer = millis();
+void loop() { 
   if(Serial.available()) {
     char c = Serial.read();
-    switch(c) {
-      case 's':
-        feeder.start_autofeeding(0, 1);
-        Serial.println("Autofeeding start");
-        break;
-      case 't':
-        feeder.stop_autofeeding();
-        Serial.println("Autofeeding stop");
-        break;
-      case 'd':
-       DateTime now = feeder.get_time();
-        Serial.println(now.hour());
-        //Serial.println(get_ultrasonic_distance());
-        break;
-      case 'w':
-        uint16_t weight = feeder.get_weight();
-        Serial.println(weight);  
+      if(c == 'a') {
+        feederState = START_FEEDING;
+      } 
+      else if(c == 's') {
+        feederState = STOP_FEEDING;
+      } 
+      // set the day feed time
+      else if(c == 'd') {
+        int hour0 = Serial.parseInt();
+        feedingHours[0] = hour0;
+        Serial.print("Set day feed time to "); Serial.println(feedingHours[0]); 
+      } 
+      // set the night feed time
+      else if(c ==  'n') {
+        int hour1 = Serial.parseInt();
+        feedingHours[1] = hour1;
+        Serial.print("Set night feed time to "); Serial.println(feedingHours[1]); 
+      } 
+      // set the target food weight 
+      else if(c == 'w') {
+        int weight = Serial.parseInt();
+        targetFoodWeight = weight;
+        Serial.print("Set target food weight to "); Serial.print(targetFoodWeight); Serial.println(" grams");
+      } 
+      // print current scale weight 
+      else if(c ==  'r') {
+        int curWeight = read_scale();
+        Serial.print("Current scale weight: "); Serial.println(curWeight);
+      } 
+      else if(c ==  't') {
+        scale.tare();
+        Serial.println("Taring scale");
+      }
     }
-  }
-  
-  //stepper.run(); 
-  
-  feeder.run();
-  /* 
-  for(int i=0; i< 1024; i++) { 
-    digitalWrite(6, LOW);
-    delayMicroseconds(stepDelay);
-    digitalWrite(6, HIGH);
-    delayMicroseconds(stepDelay);
-  }
-  */
-  //run_ultrasonic(); 
-  //Clock time;   
-  //mytime.get_time(time);
-  //mytime.tick();
-  //double grams = scale.get_units() * 10.0; 
-  //Serial.print("one reading:\t"); Serial.print(grams);
-  //if (Serial.available()) { 
-  //char c = Serial.read();  
-  //if(millis() - startTime > 1000) { 
-  //Serial.print("Years: "); Serial.print(time.years);
-  //Serial.print(" | Months: "); Serial.print(time.months);  
-  //Serial.print(" | Weeks: "); Serial.print(time.weeks);  
-  //Serial.print(" | Days: "); Serial.print(time.days);  
-  //Serial.print(" | Hours: "); Serial.print(time.hours);  
-  //Serial.print(" | Minutes: "); Serial.print(time.minutes);  
-  //Serial.print(" | Seconds: "); Serial.print(time.seconds);  
-  //Serial.println();
-  //startTime = millis(); 
-  //}
-  //Serial.print("\t| average:\t");
-  //Serial.println(scale.get_units(10), 1);
-
-  //scale.power_down();			        // put the ADC in sleep mode
-  //delay(1000);
-  //scale.power_up();
+  autofeed(); 
 }
