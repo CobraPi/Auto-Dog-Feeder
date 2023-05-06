@@ -41,9 +41,10 @@ void play_feed_tone() {
 #define PIN_STEPPER_EN0 8
 #define PIN_STEPPER_EN1 9
 AccelStepper stepper; // pins 2,3,4,5
-long feedSpeed = 10000;
-long acceleration = 1000;
-long distance = 3000;
+long feedSpeed = 300;
+long acceleration = 70;
+long distance = -35000;
+long feedCount;
 
 void init_stepper() {
   pinMode(PIN_STEPPER_EN0, OUTPUT);
@@ -63,6 +64,7 @@ void disable_stepper() {
 }
 
 void test_stepper() {
+  enable_stepper();
   if(stepper.distanceToGo() == 0) {
     distance *= -1;
     stepper.move(distance);
@@ -85,7 +87,7 @@ void init_scale() {
 }
 
 double read_scale() {
-  while(!scale.is_ready());
+  while(!scale.is_ready()) stepper.run();
   double grams = scale.get_units() * 10.0; 
   return grams;
 }
@@ -108,7 +110,6 @@ void init_rtc() {
 
 void autofeed() {
   currentTime = rtc.now(); 
-  stepper.run(); 
   switch(feederState) {
     case IDLE:
       // check time to see if we should start feeding
@@ -118,19 +119,19 @@ void autofeed() {
             alreadyFed = currentTime.hour();
           }
         }
+      noTone(PIN_TONE);
       break;
     case START_FEEDING:
+      feedCount++; 
       // start moving auger motor
       play_feed_tone();
       enable_stepper();
-      stepper.move(-100000);
+      stepper.move(distance);
       feederState = FEEDING;
     case FEEDING:
-
-    currentFoodWeight = read_scale();
-    stepper.run(); 
+      currentFoodWeight = read_scale();
       // monitor food weight and stop when we reach the desired weight
-      if(currentFoodWeight > targetFoodWeight)
+      if(currentFoodWeight > targetFoodWeight || stepper.distanceToGo() == 0)
         feederState = STOP_FEEDING; 
     break;
     case STOP_FEEDING:
@@ -150,6 +151,7 @@ void setup() {
   init_scale();  
   init_rtc(); 
   init_stepper();
+  feedCount = 0; 
   feederState = START_FEEDING; 
   alreadyFed = 100;
   feedingHours[0] = 9;
@@ -194,5 +196,6 @@ void loop() {
         Serial.println("Taring scale");
       }
     }
-  autofeed(); 
+  autofeed();
+  //test_stepper(); 
 }
